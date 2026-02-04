@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <title>Number Guessing Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            max-width: 500px;
+            width: 90%;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        
+        .difficulty-section, .game-section {
+            display: none;
+        }
+        
+        .difficulty-section.active, .game-section.active {
+            display: block;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-direction: column;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            padding: 12px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background-color: #667eea;
+            color: white;
+            transition: 0.3s;
+        }
+        
+        button:hover {
+            background-color: #764ba2;
+        }
+        
+        button.secondary {
+            background-color: #48bb78;
+        }
+        
+        button.secondary:hover {
+            background-color: #38a169;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        
+        .message {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            text-align: center;
+            font-weight: bold;
+        }
+        
+        .message.info {
+            background-color: #bee3f8;
+            color: #2c5aa0;
+        }
+        
+        .message.success {
+            background-color: #c6f6d5;
+            color: #22543d;
+        }
+        
+        .message.error {
+            background-color: #fed7d7;
+            color: #742a2a;
+        }
+        
+        .stats {
+            background-color: #f7fafc;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+            margin-top: 20px;
+        }
+        
+        .stats p {
+            margin: 5px 0;
+            color: #4a5568;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Number Guessing Game</h1>
+
+        <div id="auth" style="display:flex;gap:12px;align-items:center;justify-content:center;margin-bottom:18px;">
+            <div id="g_id_signin"></div>
+            <div id="user-info" style="display:none;align-items:center;gap:8px;">
+                <img id="user-pic" src="" alt="" style="width:40px;border-radius:50%;vertical-align:middle;">
+                <span id="user-name" style="font-weight:600;color:#222;"></span>
+                <button onclick="signOut()" style="padding:6px 10px;border-radius:6px;background:#f56565;color:#fff;border:none;">Sign out</button>
+            </div>
+        </div>
+        
+        <!-- Difficulty Selection -->
+        <div id="difficultySection" class="difficulty-section active">
+            <p style="text-align: center; margin-bottom: 20px;">Select Difficulty Level:</p>
+            <div class="btn-group">
+                <button onclick="startGame(50)">Easy (1-50)</button>
+                <button onclick="startGame(100)">Medium (1-100)</button>
+                <button onclick="startGame(200)">Hard (1-200)</button>
+            </div>
+        </div>
+        
+        <!-- Game Section -->
+        <div id="gameSection" class="game-section">
+            <div id="message" class="message info"></div>
+            <input type="number" id="guessInput" placeholder="Enter your guess..." min="1">
+            <div class="btn-group">
+                <button onclick="submitGuess()">Submit Guess</button>
+                <button class="secondary" onclick="getHint()">Get Hint</button>
+                <button onclick="quitGame()" style="background-color: #f56565;">Quit Game</button>
+            </div>
+            <div class="stats">
+                <p>Attempts: <strong id="attempts">0</strong></p>
+                <p>Hints Used: <strong id="hintsUsed">0</strong></p>
+            </div>
+        </div>
+        
+        <!-- Game Over Section -->
+        <div id="gameOverSection" class="game-section">
+            <div id="gameOverMessage" class="message success"></div>
+            <div class="stats">
+                <p>Games Played: <strong id="gamesPlayed">0</strong></p>
+                <p>Best Score: <strong id="bestScore">-</strong></p>
+            </div>
+            <button onclick="resetGame()">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'numberGame_v1';
+        let maxNumber = 0;
+        let secretNumber = 0;
+        let attempts = 0;
+        let hintsUsed = 0;
+        let gamesPlayed = 0;
+        let bestScore = Infinity;
+        let profile = null;
+
+        function saveToLocal() {
+            const data = {
+                maxNumber,
+                attempts,
+                hintsUsed,
+                gamesPlayed,
+                bestScore: isFinite(bestScore) ? bestScore : null,
+                profile,
+                ts: new Date().toISOString()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+            // best-effort send to server
+            fetch('/save-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'game_state', data })
+            }).catch(err => console.warn('Server save failed:', err));
+        }
+
+        function loadFromLocal() {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+            try {
+                const data = JSON.parse(raw);
+                if (data.gamesPlayed) gamesPlayed = data.gamesPlayed;
+                if (data.bestScore) bestScore = data.bestScore;
+                if (data.profile) {
+                    profile = data.profile;
+                    showProfile(profile);
+                }
+                // Update UI stats
+                document.getElementById('gamesPlayed').textContent = gamesPlayed;
+                document.getElementById('bestScore').textContent = isFinite(bestScore) ? bestScore : '-';
+            } catch (e) {
+                console.warn('Error loading local data', e);
+            }
+        }
+
+        function showProfile(p) {
+            if (!p) return;
+            profile = p;
+            document.getElementById('user-info').style.display = 'inline-flex';
+            document.getElementById('user-name').textContent = p.name || p.email || '';
+            document.getElementById('user-pic').src = p.picture || '';
+            document.getElementById('g_id_signin').style.display = 'none';
+            saveToLocal();
+        }
+
+        function clearProfile() {
+            profile = null;
+            document.getElementById('user-info').style.display = 'none';
+            document.getElementById('user-name').textContent = '';
+            document.getElementById('user-pic').src = '';
+            document.getElementById('g_id_signin').style.display = 'block';
+            saveToLocal();
+        }
+
+        function handleCredentialResponse(response) {
+            fetch('/verify-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id_token: response.credential })
+            }).then(r => r.json()).then(data => {
+                if (data.status === 'ok' && data.profile) {
+                    showProfile(data.profile);
+                } else {
+                    console.warn('Token verification failed', data);
+                }
+            }).catch(err => console.error('Verify token error', err));
+        }
+
+        function signOut() {
+            clearProfile();
+            // optionally revoke Google credentials on client if needed
+        }
+
+        function startGame(difficulty) {
+            maxNumber = difficulty;
+            secretNumber = Math.floor(Math.random() * maxNumber) + 1;
+            attempts = 0;
+            hintsUsed = 0;
+
+            document.getElementById('difficultySection').classList.remove('active');
+            document.getElementById('gameSection').classList.add('active');
+            document.getElementById('message').textContent = `I'm thinking of a number between 1 and ${maxNumber}. Good luck!`;
+            document.getElementById('message').className = 'message info';
+            document.getElementById('guessInput').focus();
+
+            saveToLocal();
+        }
+
+        function submitGuess() {
+            const guess = parseInt(document.getElementById('guessInput').value);
+            const messageDiv = document.getElementById('message');
+
+            if (isNaN(guess) || guess < 1 || guess > maxNumber) {
+                messageDiv.textContent = `Please enter a number between 1 and ${maxNumber}.`;
+                messageDiv.className = 'message error';
+                return;
+            }
+
+            attempts++;
+            document.getElementById('attempts').textContent = attempts;
+
+            if (guess < secretNumber) {
+                messageDiv.textContent = '📈 Too low! Try again.';
+                messageDiv.className = 'message error';
+            } else if (guess > secretNumber) {
+                messageDiv.textContent = '📉 Too high! Try again.';
+                messageDiv.className = 'message error';
+            } else {
+                endGame(true);
+                return;
+            }
+
+            document.getElementById('guessInput').value = '';
+            document.getElementById('guessInput').focus();
+
+            saveToLocal();
+        }
+
+        function getHint() {
+            const messageDiv = document.getElementById('message');
+
+            if (hintsUsed >= 2) {
+                messageDiv.textContent = '❌ No more hints available!';
+                messageDiv.className = 'message error';
+                return;
+            }
+
+            hintsUsed++;
+            document.getElementById('hintsUsed').textContent = hintsUsed;
+            const hintNum = Math.floor(Math.random() * maxNumber) + 1;
+            const min = Math.min(secretNumber, hintNum);
+            const max = Math.max(secretNumber, hintNum);
+            messageDiv.textContent = `💡 Hint: Try a number between ${min} and ${max}`;
+            messageDiv.className = 'message info';
+
+            saveToLocal();
+        }
+
+        function endGame(won) {
+            if (won) {
+                gamesPlayed++;
+                if (attempts < bestScore) {
+                    bestScore = attempts;
+                }
+
+                document.getElementById('gameSection').classList.remove('active');
+                document.getElementById('gameOverSection').classList.add('active');
+                document.getElementById('gameOverMessage').textContent = `🎉 Correct! You guessed it in ${attempts} attempts!`;
+                document.getElementById('gamesPlayed').textContent = gamesPlayed;
+                document.getElementById('bestScore').textContent = bestScore;
+
+                // Save final game record to server
+                const payload = {
+                    type: 'game_result',
+                    data: {
+                        attempts,
+                        hintsUsed,
+                        maxNumber,
+                        ts: new Date().toISOString(),
+                        profile
+                    }
+                };
+                fetch('/save-data', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                }).catch(err => console.warn('Server save failed:', err));
+
+                saveToLocal();
+            }
+        }
+
+        function quitGame() {
+            document.getElementById('gameSection').classList.remove('active');
+            document.getElementById('difficultySection').classList.add('active');
+            document.getElementById('guessInput').value = '';
+
+            saveToLocal();
+        }
+
+        function resetGame() {
+            document.getElementById('gameOverSection').classList.remove('active');
+            document.getElementById('difficultySection').classList.add('active');
+
+            saveToLocal();
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            loadFromLocal();
+            document.getElementById('guessInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') submitGuess();
+            });
+
+            // Initialize Google Identity Services
+            function initGSI() {
+                if (window.google && google.accounts && google.accounts.id) {
+                    google.accounts.id.initialize({
+                        client_id: 'YOUR_CLIENT_ID.apps.googleusercontent.com',
+                        callback: handleCredentialResponse
+                    });
+                    google.accounts.id.renderButton(document.getElementById('g_id_signin'), { theme: 'outline', size: 'large' });
+                    google.accounts.id.prompt();
+                } else {
+                    setTimeout(initGSI, 300);
+                }
+            }
+
+            initGSI();
+        });
+    </script>
+</body>
+</html>
